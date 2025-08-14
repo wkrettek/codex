@@ -44,7 +44,7 @@ pub enum NetworkAccess {
 pub(crate) struct EnvironmentContext {
     pub cwd: PathBuf,
     pub approval_policy: AskForApproval,
-    pub sandbox_policy: SandboxPolicy,
+    pub sandbox_mode: SandboxMode,
     pub network_access: NetworkAccess,
 }
 
@@ -56,7 +56,13 @@ impl Display for EnvironmentContext {
             self.cwd.to_string_lossy()
         )?;
         writeln!(f, "Approval policy: {}", self.approval_policy)?;
-        writeln!(f, "Sandbox mode: {}", self.sandbox_policy)?;
+
+        let sandbox_mode = match self.sandbox_mode {
+            SandboxMode::DangerFullAccess => "danger-full-access",
+            SandboxMode::ReadOnly => "read-only",
+            SandboxMode::WorkspaceWrite => "workspace-write",
+        };
+        writeln!(f, "Sandbox mode: {sandbox_mode}")?;
         writeln!(f, "Network access: {}", self.network_access)?;
         Ok(())
     }
@@ -67,7 +73,22 @@ impl From<&Session> for EnvironmentContext {
         EnvironmentContext {
             cwd: sess.get_cwd().to_path_buf(),
             approval_policy: sess.get_approval_policy(),
-            sandbox_policy: sess.get_sandbox_policy().clone(),
+            sandbox_mode: match sess.get_sandbox_policy() {
+                SandboxPolicy::DangerFullAccess => SandboxMode::DangerFullAccess,
+                SandboxPolicy::ReadOnly => SandboxMode::ReadOnly,
+                SandboxPolicy::WorkspaceWrite { .. } => SandboxMode::WorkspaceWrite,
+            },
+            network_access: match sess.get_sandbox_policy() {
+                SandboxPolicy::DangerFullAccess => NetworkAccess::Enabled,
+                SandboxPolicy::ReadOnly => NetworkAccess::Restricted,
+                SandboxPolicy::WorkspaceWrite { network_access, .. } => {
+                    if network_access {
+                        NetworkAccess::Enabled
+                    } else {
+                        NetworkAccess::Restricted
+                    }
+                }
+            },
             network_access: match sess.get_sandbox_policy() {
                 SandboxPolicy::DangerFullAccess => NetworkAccess::Enabled,
                 SandboxPolicy::ReadOnly => NetworkAccess::Restricted,
