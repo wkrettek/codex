@@ -89,17 +89,6 @@ impl From<&Session> for EnvironmentContext {
                     }
                 }
             },
-            network_access: match sess.get_sandbox_policy() {
-                SandboxPolicy::DangerFullAccess => NetworkAccess::Enabled,
-                SandboxPolicy::ReadOnly => NetworkAccess::Restricted,
-                SandboxPolicy::WorkspaceWrite { network_access, .. } => {
-                    if network_access {
-                        NetworkAccess::Enabled
-                    } else {
-                        NetworkAccess::Restricted
-                    }
-                }
-            },
         }
     }
 }
