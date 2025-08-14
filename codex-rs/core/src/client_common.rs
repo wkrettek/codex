@@ -1,6 +1,7 @@
 use crate::codex::Session;
 use crate::config_types::ReasoningEffort as ReasoningEffortConfig;
 use crate::config_types::ReasoningSummary as ReasoningSummaryConfig;
+use crate::config_types::SandboxMode;
 use crate::error::Result;
 use crate::model_family::ModelFamily;
 use crate::models::ContentItem;
@@ -19,6 +20,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
+use strum_macros::Display;
 use tokio::sync::mpsc;
 
 /// The `instructions` field in the payload sent to a model should always start
@@ -29,7 +31,7 @@ const BASE_INSTRUCTIONS: &str = include_str!("../prompt.md");
 const USER_INSTRUCTIONS_START: &str = "<user_instructions>\n\n";
 const USER_INSTRUCTIONS_END: &str = "\n\n</user_instructions>";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Display)]
 #[serde(rename_all = "snake_case")]
 pub enum NetworkAccess {
     Restricted,
@@ -53,20 +55,8 @@ impl Display for EnvironmentContext {
             self.cwd.to_string_lossy()
         )?;
         writeln!(f, "Approval policy: {}", self.approval_policy)?;
-        writeln!(f, "Sandbox policy: {}", self.sandbox_policy)?;
-
-        let network_access = match self.sandbox_policy.clone() {
-            SandboxPolicy::DangerFullAccess => "enabled",
-            SandboxPolicy::ReadOnly => "restricted",
-            SandboxPolicy::WorkspaceWrite { network_access, .. } => {
-                if network_access {
-                    "enabled"
-                } else {
-                    "restricted"
-                }
-            }
-        };
-        writeln!(f, "Network access: {network_access}")?;
+        writeln!(f, "Sandbox mode: {}", self.sandbox_policy)?;
+        writeln!(f, "Network access: {}", self.network_access)?;
         Ok(())
     }
 }
