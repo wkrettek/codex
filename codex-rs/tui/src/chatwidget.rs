@@ -361,8 +361,8 @@ impl ChatWidget<'_> {
             parsed,
             CommandOutput {
                 exit_code: ev.exit_code,
-                stdout: ev.aggregated_output.clone(),
-                stderr: ev.aggregated_output,
+                stdout: ev.stdout.clone(),
+                stderr: ev.stderr.clone(),
             },
         ));
 
