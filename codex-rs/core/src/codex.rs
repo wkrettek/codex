@@ -2568,9 +2568,9 @@ while True:
         .await;
         match response {
             ResponseInputItem::McpToolCallOutput { result, .. } => {
-                assert!(result.is_err(), "expected timeout error, got: {:?}", result);
+                assert!(result.is_err(), "expected timeout error, got: {result:?}");
             }
-            other => panic!("unexpected response: {:?}", other),
+            other => panic!("unexpected response: {other:?}"),
         }
     }
 
@@ -2593,7 +2593,7 @@ while True:
             ResponseInputItem::McpToolCallOutput { result, .. } => {
                 assert!(result.is_ok());
             }
-            other => panic!("unexpected response: {:?}", other),
+            other => panic!("unexpected response: {other:?}"),
         }
     }
 }
