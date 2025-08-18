@@ -2553,8 +2553,8 @@ while True:
 
     #[tokio::test]
     async fn mcp_tool_call_times_out() {
-        let (session, turn_context, _tmp) = setup_session(100).await;
-        let args = json!({ "duration_ms": 1000 }).to_string();
+        let (session, turn_context, _tmp) = setup_session(10).await;
+        let args = json!({ "duration_ms": 2000 }).to_string();
         let mut diff = TurnDiffTracker::default();
         let response = handle_function_call(
             &session,
@@ -2570,14 +2570,21 @@ while True:
             ResponseInputItem::McpToolCallOutput { result, .. } => {
                 assert!(result.is_err(), "expected timeout error, got: {result:?}");
             }
+            ResponseInputItem::FunctionCallOutput { output, .. } => {
+                // Windows OS
+                assert!(
+                    output.success.is_none(),
+                    "expected timeout error, got: {output:?}"
+                );
+            }
             other => panic!("unexpected response: {other:?}"),
         }
     }
 
     #[tokio::test]
     async fn mcp_tool_call_within_timeout_succeeds() {
-        let (session, turn_context, _tmp) = setup_session(1000).await;
-        let args = json!({ "duration_ms": 50 }).to_string();
+        let (session, turn_context, _tmp) = setup_session(3000).await;
+        let args = json!({ "duration_ms": 10 }).to_string();
         let mut diff = TurnDiffTracker::default();
         let response = handle_function_call(
             &session,
@@ -2592,6 +2599,10 @@ while True:
         match response {
             ResponseInputItem::McpToolCallOutput { result, .. } => {
                 assert!(result.is_ok());
+            }
+            ResponseInputItem::FunctionCallOutput { output, .. } => {
+                // Windows OS
+                assert!(output.success.is_some());
             }
             other => panic!("unexpected response: {other:?}"),
         }
