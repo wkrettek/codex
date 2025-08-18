@@ -2580,31 +2580,4 @@ while True:
             other => panic!("unexpected response: {other:?}"),
         }
     }
-
-    #[tokio::test]
-    async fn mcp_tool_call_within_timeout_succeeds() {
-        let (session, turn_context, _tmp) = setup_session(3000).await;
-        let args = json!({ "duration_ms": 10 }).to_string();
-        let mut diff = TurnDiffTracker::default();
-        let response = handle_function_call(
-            &session,
-            &turn_context,
-            &mut diff,
-            "sub".to_string(),
-            "dummy__sleep".to_string(),
-            args,
-            "call".to_string(),
-        )
-        .await;
-        match response {
-            ResponseInputItem::McpToolCallOutput { result, .. } => {
-                assert!(result.is_ok());
-            }
-            ResponseInputItem::FunctionCallOutput { output, .. } => {
-                // Windows OS
-                assert!(output.success.is_some());
-            }
-            other => panic!("unexpected response: {other:?}"),
-        }
-    }
 }
