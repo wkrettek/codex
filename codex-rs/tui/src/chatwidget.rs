@@ -548,7 +548,62 @@ impl ChatWidget<'_> {
 
         match self.bottom_pane.handle_key_event(key_event) {
             InputResult::Submitted(text) => {
-                self.submit_user_message(text.into());
+                // Bang command: execute locally in user's shell and render output in TUI.
+                if let Some(cmd) = text.trim_start().strip_prefix('!') {
+                    let cmdline = cmd.trim_start().to_string();
+                    if !cmdline.is_empty() {
+                        let command = vec![
+                            "bash".to_string(),
+                            "-lc".to_string(),
+                            cmdline.clone(),
+                        ];
+                        // Parse for nicer presentation in the exec cell
+                        let parsed_core = codex_core::parse_command::parse_command(&command);
+                        let parsed: Vec<ParsedCommand> =
+                            parsed_core.into_iter().map(Into::into).collect();
+
+                        // Announce begin to set an active exec cell
+                        self.app_event_tx
+                            .send(AppEvent::LocalExecBegin {
+                                command: command.clone(),
+                                parsed: parsed.clone(),
+                            });
+
+                        // Spawn background task to execute and report completion
+                        let tx = self.app_event_tx.clone();
+                        let cwd = self.config.cwd.clone();
+                        tokio::task::spawn_blocking(move || {
+                            use std::process::Command;
+                            let mut cmd = Command::new("bash");
+                            cmd.arg("-lc").arg(cmdline).current_dir(cwd);
+                            let output = match cmd.output() {
+                                Ok(o) => o,
+                                Err(e) => {
+                                    // Synthesize a failure result
+                                    return tx.send(AppEvent::LocalExecEnd {
+                                        command,
+                                        parsed,
+                                        output: CommandOutput {
+                                            exit_code: 1,
+                                            stdout: String::new(),
+                                            stderr: format!("failed to spawn shell: {e}"),
+                                        },
+                                    });
+                                }
+                            };
+                            let exit_code = output.status.code().unwrap_or(-1);
+                            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                            tx.send(AppEvent::LocalExecEnd {
+                                command,
+                                parsed,
+                                output: CommandOutput { exit_code, stdout, stderr },
+                            });
+                        });
+                    }
+                } else {
+                    self.submit_user_message(text.into());
+                }
             }
             InputResult::None => {}
         }
@@ -681,6 +736,30 @@ impl ChatWidget<'_> {
     pub(crate) fn add_diff_output(&mut self, diff_output: String) {
         self.bottom_pane.set_task_running(false);
         self.add_to_history(&history_cell::new_diff_output(diff_output));
+        self.mark_needs_redraw();
+    }
+
+    // --- Local exec (bang command) support ---
+    pub(crate) fn handle_local_exec_begin(
+        &mut self,
+        command: Vec<String>,
+        parsed: Vec<ParsedCommand>,
+    ) {
+        self.active_exec_cell = Some(history_cell::new_active_exec_command(command, parsed));
+        self.bottom_pane.set_task_running(true);
+        self.mark_needs_redraw();
+    }
+
+    pub(crate) fn handle_local_exec_end(
+        &mut self,
+        command: Vec<String>,
+        parsed: Vec<ParsedCommand>,
+        output: CommandOutput,
+    ) {
+        self.active_exec_cell = None;
+        self.bottom_pane.set_task_running(false);
+        // For local exec, include stdout even on success for better UX.
+        self.add_to_history(&history_cell::new_local_exec_output(command, parsed, output));
         self.mark_needs_redraw();
     }
 

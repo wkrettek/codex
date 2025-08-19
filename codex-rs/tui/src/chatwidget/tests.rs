@@ -701,6 +701,84 @@ fn apply_patch_request_shows_diff_summary() {
 }
 
 #[test]
+fn local_exec_success_includes_stdout() {
+    let (mut chat, rx, _op_rx) = make_chatwidget_manual();
+
+    // Set up a unique temporary directory with two files
+    let root = std::env::temp_dir()
+        .join(format!("codex_tui_bang_test_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).expect("mkdir temp root");
+    std::fs::write(root.join("alpha"), b"").expect("create alpha");
+    std::fs::write(root.join("beta"), b"").expect("create beta");
+
+    // Simulate begin of local exec (bang) with a simple ls
+    let command = vec!["bash".into(), "-lc".into(), "ls".into()];
+    let parsed: Vec<ParsedCommand> = codex_core::parse_command::parse_command(&command)
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    chat.handle_local_exec_begin(command.clone(), parsed.clone());
+
+    // Actually run ls in the temp directory to produce deterministic stdout
+    let output = std::process::Command::new("bash")
+        .arg("-lc")
+        .arg("ls")
+        .current_dir(&root)
+        .output()
+        .expect("spawn bash -lc ls");
+
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    chat.handle_local_exec_end(
+        command,
+        parsed,
+        history_cell::CommandOutput {
+            exit_code,
+            stdout: stdout.clone(),
+            stderr: stderr.clone(),
+        },
+    );
+
+    let cells = drain_insert_history(&rx);
+    // Cleanup best-effort
+    let _ = std::fs::remove_dir_all(&root);
+
+    assert!(!cells.is_empty(), "expected history output for local exec");
+    let blob = lines_to_single_string(cells.last().unwrap());
+    assert!(blob.contains("Completed"), "missing Completed header: {blob:?}");
+    assert!(blob.contains("alpha"), "missing alpha filename in stdout: {blob:?}\nstdout={stdout:?} stderr={stderr:?}");
+    assert!(blob.contains("beta"), "missing beta filename in stdout: {blob:?}\nstdout={stdout:?} stderr={stderr:?}");
+}
+
+#[test]
+fn local_exec_failure_includes_stderr() {
+    let (mut chat, rx, _op_rx) = make_chatwidget_manual();
+
+    let command = vec!["bash".into(), "-lc".into(), "false".into()];
+    let parsed: Vec<ParsedCommand> = codex_core::parse_command::parse_command(&command)
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    chat.handle_local_exec_begin(command.clone(), parsed.clone());
+    chat.handle_local_exec_end(
+        command,
+        parsed,
+        history_cell::CommandOutput {
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: "boom".into(),
+        },
+    );
+    let cells = drain_insert_history(&rx);
+    assert!(!cells.is_empty(), "expected history output for local exec");
+    let blob = lines_to_single_string(cells.last().unwrap());
+    assert!(blob.contains("Failed (exit 1)"), "missing failure header: {blob:?}");
+    assert!(blob.contains("boom"), "missing stderr content: {blob:?}");
+}
+
+#[test]
 fn plan_update_renders_history_cell() {
     let (mut chat, rx, _op_rx) = make_chatwidget_manual();
     let update = UpdatePlanArgs {

@@ -7,6 +7,7 @@ use std::time::Duration;
 use crate::app::ChatWidgetArgs;
 use crate::slash_command::SlashCommand;
 use codex_core::protocol_config_types::ReasoningEffort;
+use crate::history_cell::CommandOutput;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
@@ -70,4 +71,17 @@ pub(crate) enum AppEvent {
 
     /// Update the current model slug in the running app and widget.
     UpdateModel(String),
+
+    /// Begin a locally-executed shell command (bang command) initiated by the user.
+    LocalExecBegin {
+        command: Vec<String>,
+        parsed: Vec<codex_protocol::parse_command::ParsedCommand>,
+    },
+
+    /// Completion of a locally-executed shell command (bang command).
+    LocalExecEnd {
+        command: Vec<String>,
+        parsed: Vec<codex_protocol::parse_command::ParsedCommand>,
+        output: CommandOutput,
+    },
 }

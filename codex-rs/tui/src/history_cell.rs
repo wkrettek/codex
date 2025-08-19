@@ -39,7 +39,7 @@ use std::time::Instant;
 use tracing::error;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct CommandOutput {
     pub(crate) exit_code: i32,
     pub(crate) stdout: String,
@@ -217,6 +217,62 @@ pub(crate) fn new_completed_exec_command(
         output: Some(output),
         start_time: None,
     }
+}
+
+/// Render a completed local (bang) exec command, always including stdout on success.
+pub(crate) fn new_local_exec_output(
+    _command: Vec<String>,
+    parsed_commands: Vec<ParsedCommand>,
+    output: CommandOutput,
+) -> PlainHistoryCell {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    // Title line based on exit status
+    if output.exit_code == 0 {
+        lines.push(Line::from(vec!["✓".green(), " Completed".into()]));
+    } else {
+        lines.push(Line::from(vec![
+            "✗".red(),
+            format!(" Failed (exit {})", output.exit_code).into(),
+        ]));
+    }
+
+    // Show parsed command summaries, if any
+    for (i, parsed) in parsed_commands.iter().enumerate() {
+        let text = match parsed {
+            ParsedCommand::Read { name, .. } => format!("📖 {name}"),
+            ParsedCommand::ListFiles { cmd, path } => match path {
+                Some(p) => format!("📂 {p}"),
+                None => format!("📂 {cmd}"),
+            },
+            ParsedCommand::Search { query, path, cmd } => match (query, path) {
+                (Some(q), Some(p)) => format!("🔎 {q} in {p}"),
+                (Some(q), None) => format!("🔎 {q}"),
+                (None, Some(p)) => format!("🔎 {p}"),
+                (None, None) => format!("🔎 {cmd}"),
+            },
+            ParsedCommand::Format { .. } => "✨ Formatting".to_string(),
+            ParsedCommand::Test { cmd } => format!("🧪 {cmd}"),
+            ParsedCommand::Lint { cmd, .. } => format!("🧹 {cmd}"),
+            ParsedCommand::Unknown { cmd } => format!("⌨️ {cmd}"),
+            ParsedCommand::Noop { cmd } => format!("🔄 {cmd}"),
+        };
+
+        let first_prefix = if i == 0 { "  └ " } else { "    " };
+        for (j, line_text) in text.lines().enumerate() {
+            let prefix = if j == 0 { first_prefix } else { "    " };
+            lines.push(Line::from(vec![
+                Span::styled(prefix, Style::default().add_modifier(Modifier::DIM)),
+                line_text.to_string().dim(),
+            ]));
+        }
+    }
+
+    // Always include output (stdout on success, stderr on failure), like generic renderer
+    lines.extend(output_lines(Some(&output), false, true));
+    lines.push(Line::from(""));
+
+    PlainHistoryCell { lines }
 }
 
 fn exec_duration(start: Instant) -> String {

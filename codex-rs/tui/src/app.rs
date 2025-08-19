@@ -355,6 +355,20 @@ impl App<'_> {
                         widget.add_diff_output(text);
                     }
                 }
+                AppEvent::LocalExecBegin { command, parsed } => {
+                    if let AppState::Chat { widget } = &mut self.app_state {
+                        widget.handle_local_exec_begin(command, parsed);
+                    }
+                }
+                AppEvent::LocalExecEnd {
+                    command,
+                    parsed,
+                    output,
+                } => {
+                    if let AppState::Chat { widget } = &mut self.app_state {
+                        widget.handle_local_exec_end(command, parsed, output);
+                    }
+                }
                 AppEvent::DispatchCommand(command) => match command {
                     SlashCommand::New => {
                         // User accepted – switch to chat view.
