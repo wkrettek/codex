@@ -557,10 +557,8 @@ impl ChatWidget<'_> {
                             "-lc".to_string(),
                             cmdline.clone(),
                         ];
-                        // Parse for nicer presentation in the exec cell
-                        let parsed_core = codex_core::parse_command::parse_command(&command);
-                        let parsed: Vec<ParsedCommand> =
-                            parsed_core.into_iter().map(Into::into).collect();
+                        // Do not render parsed summaries for local bang commands; keep UI minimal.
+                        let parsed: Vec<ParsedCommand> = Vec::new();
 
                         // Announce begin to set an active exec cell
                         self.app_event_tx
