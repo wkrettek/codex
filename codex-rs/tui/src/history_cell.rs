@@ -1,4 +1,3 @@
-use crate::colors::LIGHT_BLUE;
 use crate::diff_render::create_diff_summary;
 use crate::exec_command::relativize_to_home;
 use crate::exec_command::strip_bash_lc_and_escape;
@@ -170,7 +169,6 @@ pub(crate) fn new_session_info(
             Line::from(format!(" /init - {}", SlashCommand::Init.description()).dim()),
             Line::from(format!(" /status - {}", SlashCommand::Status.description()).dim()),
             Line::from(format!(" /diff - {}", SlashCommand::Diff.description()).dim()),
-            Line::from(format!(" /prompts - {}", SlashCommand::Prompts.description()).dim()),
             Line::from("".dim()),
         ];
         PlainHistoryCell { lines }
@@ -253,12 +251,13 @@ fn new_parsed_command(
             lines.push(Line::from(spans));
         }
         Some(o) if o.exit_code == 0 => {
-            lines.push(Line::from("✓ Completed".green().bold()));
+            lines.push(Line::from(vec!["✓".green(), " Completed".into()]));
         }
         Some(o) => {
-            lines.push(Line::from(
-                format!("✗ Failed (exit {})", o.exit_code).red().bold(),
-            ));
+            lines.push(Line::from(vec![
+                "✗".red(),
+                format!(" Failed (exit {})", o.exit_code).into(),
+            ]));
         }
     };
 
@@ -305,7 +304,7 @@ fn new_parsed_command(
             let prefix = if j == 0 { first_prefix } else { "    " };
             lines.push(Line::from(vec![
                 Span::styled(prefix, Style::default().add_modifier(Modifier::DIM)),
-                Span::styled(line_text.to_string(), Style::default().fg(LIGHT_BLUE)),
+                line_text.to_string().dim(),
             ]));
         }
     }
@@ -635,21 +634,6 @@ pub(crate) fn new_status_output(
     PlainHistoryCell { lines }
 }
 
-pub(crate) fn new_prompts_output() -> PlainHistoryCell {
-    let lines: Vec<Line<'static>> = vec![
-        Line::from("/prompts".magenta()),
-        Line::from(""),
-        Line::from(" 1. Explain this codebase"),
-        Line::from(" 2. Summarize recent commits"),
-        Line::from(" 3. Implement {feature}"),
-        Line::from(" 4. Find and fix a bug in @filename"),
-        Line::from(" 5. Write tests for @filename"),
-        Line::from(" 6. Improve documentation in @filename"),
-        Line::from(""),
-    ];
-    PlainHistoryCell { lines }
-}
-
 pub(crate) fn new_error_event(message: String) -> PlainHistoryCell {
     let lines: Vec<Line<'static>> = vec![vec!["🖐 ".red().bold(), message.into()].into(), "".into()];
     PlainHistoryCell { lines }
@@ -727,7 +711,7 @@ pub(crate) fn new_plan_update(update: UpdatePlanArgs) -> PlainHistoryCell {
                     Span::styled(
                         step,
                         Style::default()
-                            .fg(Color::Blue)
+                            .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),
                     ),
                 ),
@@ -929,9 +913,9 @@ fn format_mcp_invocation<'a>(invocation: McpInvocation) -> Line<'a> {
         .unwrap_or_default();
 
     let invocation_spans = vec![
-        Span::styled(invocation.server.clone(), Style::default().fg(Color::Blue)),
+        Span::styled(invocation.server.clone(), Style::default().fg(Color::Cyan)),
         Span::raw("."),
-        Span::styled(invocation.tool.clone(), Style::default().fg(Color::Blue)),
+        Span::styled(invocation.tool.clone(), Style::default().fg(Color::Cyan)),
         Span::raw("("),
         Span::styled(args_str, Style::default().add_modifier(Modifier::DIM)),
         Span::raw(")"),
