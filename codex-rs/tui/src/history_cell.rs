@@ -537,13 +537,6 @@ pub(crate) fn new_status_output(
         sandbox_name.into(),
     ]));
 
-    if let Some(session_id) = session_id {
-        lines.push(Line::from(vec![
-            "  • Session ID: ".into(),
-            session_id.to_string().into(),
-        ]));
-    }
-
     lines.push(Line::from(""));
 
     // 👤 Account (only if ChatGPT tokens exist), shown under the first block
@@ -608,6 +601,12 @@ pub(crate) fn new_status_output(
 
     // 📊 Token Usage
     lines.push(Line::from(vec!["📊 ".into(), "Token Usage".bold()]));
+    if let Some(session_id) = session_id {
+        lines.push(Line::from(vec![
+            "  • Session ID: ".into(),
+            session_id.to_string().into(),
+        ]));
+    }
     // Input: <input> [+ <cached> cached]
     let mut input_line_spans: Vec<Span<'static>> = vec![
         "  • Input: ".into(),
@@ -631,6 +630,87 @@ pub(crate) fn new_status_output(
     ]));
 
     lines.push(Line::from(""));
+    PlainHistoryCell { lines }
+}
+
+/// Render a summary of configured MCP servers from the current `Config`.
+pub(crate) fn empty_mcp_output() -> PlainHistoryCell {
+    let lines: Vec<Line<'static>> = vec![
+        Line::from("/mcp".magenta()),
+        Line::from(""),
+        Line::from(vec!["🔌  ".into(), "MCP Tools".bold()]),
+        Line::from(""),
+        Line::from("  • No MCP servers configured.".italic()),
+        Line::from(""),
+    ];
+
+    PlainHistoryCell { lines }
+}
+
+/// Render MCP tools grouped by connection using the fully-qualified tool names.
+pub(crate) fn new_mcp_tools_output(
+    config: &Config,
+    tools: std::collections::HashMap<String, mcp_types::Tool>,
+) -> PlainHistoryCell {
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from("/mcp".magenta()),
+        Line::from(""),
+        Line::from(vec!["🔌  ".into(), "MCP Tools".bold()]),
+        Line::from(""),
+    ];
+
+    if tools.is_empty() {
+        lines.push(Line::from("  • No MCP tools available.".italic()));
+        lines.push(Line::from(""));
+        return PlainHistoryCell { lines };
+    }
+
+    for (server, cfg) in config.mcp_servers.iter() {
+        let prefix = format!("{server}__");
+        let mut names: Vec<String> = tools
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .map(|k| k[prefix.len()..].to_string())
+            .collect();
+        names.sort();
+
+        lines.push(Line::from(vec![
+            "  • Server: ".into(),
+            server.clone().into(),
+        ]));
+
+        if !cfg.command.is_empty() {
+            let cmd_display = format!("{} {}", cfg.command, cfg.args.join(" "));
+
+            lines.push(Line::from(vec![
+                "    • Command: ".into(),
+                cmd_display.into(),
+            ]));
+        }
+
+        if let Some(env) = cfg.env.as_ref() {
+            if !env.is_empty() {
+                let mut env_pairs: Vec<String> =
+                    env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                env_pairs.sort();
+                lines.push(Line::from(vec![
+                    "    • Env: ".into(),
+                    env_pairs.join(" ").into(),
+                ]));
+            }
+        }
+
+        if names.is_empty() {
+            lines.push(Line::from("    • Tools: (none)"));
+        } else {
+            lines.push(Line::from(vec![
+                "    • Tools: ".into(),
+                names.join(", ").into(),
+            ]));
+        }
+        lines.push(Line::from(""));
+    }
+
     PlainHistoryCell { lines }
 }
 
