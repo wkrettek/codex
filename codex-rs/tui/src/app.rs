@@ -117,7 +117,7 @@ impl App<'_> {
                     show_trust_screen,
                     show_login_screen,
                     chat_widget_args,
-                    login_status: get_login_status(&config),
+                    login_status,
                 }),
             }
         } else {
