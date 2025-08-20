@@ -30,14 +30,18 @@ use crate::outgoing_message::OutgoingNotification;
 use codex_core::protocol::InputItem as CoreInputItem;
 use codex_core::protocol::Op;
 use codex_login::CLIENT_ID;
+use codex_login::CodexAuth;
 use codex_login::ServerOptions as LoginServerOptions;
 use codex_login::ShutdownHandle;
+use codex_login::logout;
 use codex_login::run_login_server;
 use codex_protocol::mcp_protocol::APPLY_PATCH_APPROVAL_METHOD;
+use codex_protocol::mcp_protocol::AUTH_STATUS_CHANGE_EVENT;
 use codex_protocol::mcp_protocol::AddConversationListenerParams;
 use codex_protocol::mcp_protocol::AddConversationSubscriptionResponse;
 use codex_protocol::mcp_protocol::ApplyPatchApprovalParams;
 use codex_protocol::mcp_protocol::ApplyPatchApprovalResponse;
+use codex_protocol::mcp_protocol::AuthStatusChangeNotification;
 use codex_protocol::mcp_protocol::ClientRequest;
 use codex_protocol::mcp_protocol::ConversationId;
 use codex_protocol::mcp_protocol::EXEC_COMMAND_APPROVAL_METHOD;
@@ -57,6 +61,8 @@ use codex_protocol::mcp_protocol::SendUserMessageParams;
 use codex_protocol::mcp_protocol::SendUserMessageResponse;
 use codex_protocol::mcp_protocol::SendUserTurnParams;
 use codex_protocol::mcp_protocol::SendUserTurnResponse;
+use codex_protocol::protocol::AuthMethod;
+use toml::Value as TomlValue; // for clarity where overrides stored
 
 // Duration before a ChatGPT login attempt is abandoned.
 const LOGIN_CHATGPT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -77,6 +83,7 @@ pub(crate) struct CodexMessageProcessor {
     conversation_manager: Arc<ConversationManager>,
     outgoing: Arc<OutgoingMessageSender>,
     codex_linux_sandbox_exe: Option<PathBuf>,
+    cli_kv_overrides: Vec<(String, TomlValue)>,
     conversation_listeners: HashMap<Uuid, oneshot::Sender<()>>,
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
     // Queue of pending interrupt requests per conversation. We reply when TurnAborted arrives.
@@ -88,11 +95,13 @@ impl CodexMessageProcessor {
         conversation_manager: Arc<ConversationManager>,
         outgoing: Arc<OutgoingMessageSender>,
         codex_linux_sandbox_exe: Option<PathBuf>,
+        cli_kv_overrides: Vec<(String, TomlValue)>,
     ) -> Self {
         Self {
             conversation_manager,
             outgoing,
             codex_linux_sandbox_exe,
+            cli_kv_overrides,
             conversation_listeners: HashMap::new(),
             active_login: Arc::new(Mutex::new(None)),
             pending_interrupts: Arc::new(Mutex::new(HashMap::new())),
@@ -128,6 +137,12 @@ impl CodexMessageProcessor {
             ClientRequest::CancelLoginChatGpt { request_id, params } => {
                 self.cancel_login_chatgpt(request_id, params.login_id).await;
             }
+            ClientRequest::LogoutChatGpt { request_id } => {
+                self.logout_chatgpt(request_id).await;
+            }
+            ClientRequest::GetAuthStatus { request_id } => {
+                self.get_auth_status(request_id).await;
+            }
             ClientRequest::GitDiffToRemote { request_id, params } => {
                 self.git_diff_to_origin(request_id, params.cwd).await;
             }
@@ -135,19 +150,21 @@ impl CodexMessageProcessor {
     }
 
     async fn login_chatgpt(&mut self, request_id: RequestId) {
-        let config =
-            match Config::load_with_cli_overrides(Default::default(), ConfigOverrides::default()) {
-                Ok(cfg) => cfg,
-                Err(err) => {
-                    let error = JSONRPCErrorError {
-                        code: INTERNAL_ERROR_CODE,
-                        message: format!("error loading config for login: {err}"),
-                        data: None,
-                    };
-                    self.outgoing.send_error(request_id, error).await;
-                    return;
-                }
-            };
+        let config = match Config::load_with_cli_overrides(
+            self.cli_kv_overrides.clone(),
+            ConfigOverrides::default(),
+        ) {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("error loading config for login: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
 
         let opts = LoginServerOptions {
             open_browser: false,
@@ -212,6 +229,20 @@ impl CodexMessageProcessor {
                         })
                         .await;
 
+                    // Send an auth status change notification.
+                    if success {
+                        let notification = AuthStatusChangeNotification {
+                            auth_method: Some(AuthMethod::ChatGPT),
+                        };
+                        let params = serde_json::to_value(&notification).ok();
+                        outgoing_clone
+                            .send_notification(OutgoingNotification {
+                                method: AUTH_STATUS_CHANGE_EVENT.to_string(),
+                                params,
+                            })
+                            .await;
+                    }
+
                     // Clear the active login if it matches this attempt. It may have been replaced or cancelled.
                     let mut guard = active_login.lock().await;
                     if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
@@ -258,6 +289,110 @@ impl CodexMessageProcessor {
             };
             self.outgoing.send_error(request_id, error).await;
         }
+    }
+
+    async fn logout_chatgpt(&mut self, request_id: RequestId) {
+        // Cancel any active login attempt.
+        let mut guard = self.active_login.lock().await;
+        if let Some(active) = guard.take() {
+            active.drop();
+        }
+        drop(guard);
+
+        // Load config to locate codex_home for persistent logout.
+        let config = match Config::load_with_cli_overrides(
+            self.cli_kv_overrides.clone(),
+            ConfigOverrides::default(),
+        ) {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("error loading config for logout: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        if let Err(err) = logout(&config.codex_home) {
+            let error = JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("logout failed: {err}"),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        }
+
+        self.outgoing
+            .send_response(
+                request_id,
+                codex_protocol::mcp_protocol::LogoutChatGptResponse {},
+            )
+            .await;
+
+        // Send auth status change notification.
+        self.outgoing
+            .send_notification(OutgoingNotification {
+                method: AUTH_STATUS_CHANGE_EVENT.to_string(),
+                params: Some(
+                    serde_json::to_value(&AuthStatusChangeNotification { auth_method: None })
+                        .unwrap_or_default(),
+                ),
+            })
+            .await;
+    }
+
+    async fn get_auth_status(&self, request_id: RequestId) {
+        // Load config to determine codex_home and preferred auth method.
+        let config = match Config::load_with_cli_overrides(
+            self.cli_kv_overrides.clone(),
+            ConfigOverrides::default(),
+        ) {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("error loading config for auth status: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let preferred_auth_method: AuthMethod = config.preferred_auth_method.into();
+        let response =
+            match CodexAuth::from_codex_home(&config.codex_home, config.preferred_auth_method) {
+                Ok(Some(auth)) => {
+                    // Verify that the current auth mode has a valid, non-empty token.
+                    // If token acquisition fails or is empty, treat as unauthenticated.
+                    let reported_auth_method = match auth.get_token().await {
+                        Ok(token) if !token.is_empty() => Some(auth.mode.into()),
+                        Ok(_) => None, // Empty token
+                        Err(err) => {
+                            tracing::warn!("failed to get token for auth status: {err}");
+                            None
+                        }
+                    };
+                    codex_protocol::mcp_protocol::GetAuthStatusResponse {
+                        auth_method: reported_auth_method,
+                        preferred_auth_method,
+                    }
+                }
+                Ok(None) => codex_protocol::mcp_protocol::GetAuthStatusResponse {
+                    auth_method: None,
+                    preferred_auth_method,
+                },
+                Err(_) => codex_protocol::mcp_protocol::GetAuthStatusResponse {
+                    auth_method: None,
+                    preferred_auth_method,
+                },
+            };
+
+        self.outgoing.send_response(request_id, response).await;
     }
 
     async fn process_new_conversation(&self, request_id: RequestId, params: NewConversationParams) {

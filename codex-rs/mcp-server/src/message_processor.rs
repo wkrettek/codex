@@ -33,6 +33,7 @@ use serde_json::json;
 use tokio::sync::Mutex;
 use tokio::task;
 use uuid::Uuid;
+use toml::Value as TomlValue;
 
 pub(crate) struct MessageProcessor {
     codex_message_processor: CodexMessageProcessor,
@@ -49,6 +50,7 @@ impl MessageProcessor {
     pub(crate) fn new(
         outgoing: OutgoingMessageSender,
         codex_linux_sandbox_exe: Option<PathBuf>,
+        cli_kv_overrides: Vec<(String, TomlValue)>,
     ) -> Self {
         let outgoing = Arc::new(outgoing);
         let conversation_manager = Arc::new(ConversationManager::default());
@@ -56,6 +58,7 @@ impl MessageProcessor {
             conversation_manager.clone(),
             outgoing.clone(),
             codex_linux_sandbox_exe.clone(),
+            cli_kv_overrides,
         );
         Self {
             codex_message_processor,

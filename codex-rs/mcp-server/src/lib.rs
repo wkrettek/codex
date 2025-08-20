@@ -4,6 +4,8 @@
 use std::io::Result as IoResult;
 use std::path::PathBuf;
 
+use codex_common::CliConfigOverrides;
+
 use mcp_types::JSONRPCMessage;
 use tokio::io::AsyncBufReadExt;
 use tokio::io::AsyncWriteExt;
@@ -41,7 +43,10 @@ pub use crate::patch_approval::PatchApprovalResponse;
 /// plenty for an interactive CLI.
 const CHANNEL_CAPACITY: usize = 128;
 
-pub async fn run_main(codex_linux_sandbox_exe: Option<PathBuf>) -> IoResult<()> {
+pub async fn run_main(
+    codex_linux_sandbox_exe: Option<PathBuf>,
+    cli_config_overrides: CliConfigOverrides,
+) -> IoResult<()> {
     // Install a simple subscriber so `tracing` output is visible.  Users can
     // control the log level with `RUST_LOG`.
     tracing_subscriber::fmt()
@@ -77,10 +82,26 @@ pub async fn run_main(codex_linux_sandbox_exe: Option<PathBuf>) -> IoResult<()> 
         }
     });
 
+    // Parse CLI overrides once so we can reuse them for operations
+    // like `get_auth_status` that need access to the effective config.
+    let cli_kv_overrides = match cli_config_overrides.parse_overrides() {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("error parsing -c overrides: {e}"),
+            ));
+        }
+    };
+
     // Task: process incoming messages.
     let processor_handle = tokio::spawn({
         let outgoing_message_sender = OutgoingMessageSender::new(outgoing_tx);
-        let mut processor = MessageProcessor::new(outgoing_message_sender, codex_linux_sandbox_exe);
+        let mut processor = MessageProcessor::new(
+            outgoing_message_sender,
+            codex_linux_sandbox_exe,
+            cli_kv_overrides,
+        );
         async move {
             while let Some(msg) = incoming_rx.recv().await {
                 match msg {

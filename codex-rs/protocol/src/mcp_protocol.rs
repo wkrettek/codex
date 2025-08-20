@@ -6,6 +6,7 @@ use crate::config_types::ReasoningEffort;
 use crate::config_types::ReasoningSummary;
 use crate::config_types::SandboxMode;
 use crate::protocol::AskForApproval;
+use crate::protocol::AuthMethod;
 use crate::protocol::FileChange;
 use crate::protocol::ReviewDecision;
 use crate::protocol::SandboxPolicy;
@@ -78,6 +79,14 @@ pub enum ClientRequest {
         #[serde(rename = "id")]
         request_id: RequestId,
         params: CancelLoginChatGptParams,
+    },
+    LogoutChatGpt {
+        #[serde(rename = "id")]
+        request_id: RequestId,
+    },
+    GetAuthStatus {
+        #[serde(rename = "id")]
+        request_id: RequestId,
     },
     GitDiffToRemote {
         #[serde(rename = "id")]
@@ -164,6 +173,9 @@ pub struct GitDiffToRemoteResponse {
 // Event name for notifying client of login completion or failure.
 pub const LOGIN_CHATGPT_COMPLETE_EVENT: &str = "codex/event/login_chatgpt_complete";
 
+// Event name for notifying client of an auth status change.
+pub const AUTH_STATUS_CHANGE_EVENT: &str = "codex/event/auth_status_change";
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginChatGptCompleteNotification {
@@ -171,6 +183,14 @@ pub struct LoginChatGptCompleteNotification {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthStatusChangeNotification {
+    /// Current authentication method; omitted if signed out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_method: Option<AuthMethod>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
@@ -188,6 +208,30 @@ pub struct GitDiffToRemoteParams {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct CancelLoginChatGptResponse {}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LogoutChatGptParams {
+    pub login_id: Uuid,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LogoutChatGptResponse {}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GetAuthStatusParams {
+    pub login_id: Uuid,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GetAuthStatusResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_method: Option<AuthMethod>,
+    pub preferred_auth_method: AuthMethod,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, TS)]
 #[serde(rename_all = "camelCase")]
