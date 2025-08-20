@@ -32,8 +32,8 @@ use mcp_types::TextContent;
 use serde_json::json;
 use tokio::sync::Mutex;
 use tokio::task;
-use uuid::Uuid;
 use toml::Value as TomlValue;
+use uuid::Uuid;
 
 pub(crate) struct MessageProcessor {
     codex_message_processor: CodexMessageProcessor,
