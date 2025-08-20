@@ -91,7 +91,9 @@ pub fn maybe_parse_apply_patch(argv: &[String]) -> MaybeApplyPatch {
         [bash, flag, script]
             if bash == "bash"
                 && flag == "-lc"
-                && script.trim_start().starts_with("apply_patch") =>
+                && APPLY_PATCH_COMMANDS
+                    .iter()
+                    .any(|cmd| script.trim_start().starts_with(cmd)) =>
         {
             match extract_heredoc_body_from_apply_patch_command(script) {
                 Ok(body) => match parse_patch(&body) {
@@ -748,6 +750,33 @@ mod tests {
 
     #[test]
     fn test_heredoc() {
+        let args = strs_to_strings(&[
+            "bash",
+            "-lc",
+            r#"apply_patch <<'PATCH'
+*** Begin Patch
+*** Add File: foo
++hi
+*** End Patch
+PATCH"#,
+        ]);
+
+        match maybe_parse_apply_patch(&args) {
+            MaybeApplyPatch::Body(ApplyPatchArgs { hunks, patch: _ }) => {
+                assert_eq!(
+                    hunks,
+                    vec![Hunk::AddFile {
+                        path: PathBuf::from("foo"),
+                        contents: "hi\n".to_string()
+                    }]
+                );
+            }
+            result => panic!("expected MaybeApplyPatch::Body got {result:?}"),
+        }
+    }
+
+    #[test]
+    fn test_heredoc_applypatch() {
         let args = strs_to_strings(&[
             "bash",
             "-lc",
